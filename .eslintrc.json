@@ -1,0 +1,38 @@
+{
+  "env": {
+    "es2022": true,
+    "node": true,
+    "jest": true
+  },
+  "extends": ["eslint:recommended"],
+  "parserOptions": {
+    "ecmaVersion": "latest",
+    "sourceType": "module"
+  },
+  "rules": {
+    "indent": ["error", 2],
+    "linebreak-style": ["error", "unix"],
+    "quotes": ["error", "single"],
+    "semi": ["error", "always"],
+    "no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
+    "no-console": "warn",
+    "prefer-const": "error",
+    "no-var": "error",
+    "arrow-spacing": "error",
+    "object-curly-spacing": ["error", "always"],
+    "array-bracket-spacing": ["error", "never"],
+    "comma-dangle": ["error", "never"],
+    "no-trailing-spaces": "error",
+    "eol-last": "error",
+    "no-multiple-empty-lines": ["error", { "max": 2 }],
+    "space-before-function-paren": ["error", "never"],
+    "keyword-spacing": "error",
+    "space-infix-ops": "error",
+    "brace-style": ["error", "1tbs"],
+    "comma-spacing": ["error", { "before": false, "after": true }],
+    "key-spacing": ["error", { "beforeColon": false, "afterColon": true }],
+    "no-multi-spaces": "error",
+    "space-before-blocks": "error"
+  },
+  "ignorePatterns": ["node_modules/", "dist/", "coverage/"]
+}
