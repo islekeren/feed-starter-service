@@ -99,6 +99,10 @@ export function handleConnection(ws, req) {
         await handleCommandAck(message, clientIp);
         break;
 
+      case 'heartbeat':
+        await handleHeartbeat(courtId, message, clientIp);
+        break;
+
       default:
         logger.warn({ message, clientIp }, 'Unknown message type');
         socket.send(
@@ -119,6 +123,9 @@ function detectMessageType(message) {
   }
   if (message.commandId !== undefined) {
     return 'command-ack';
+  }
+  if (message.type === 'heartbeat') {
+    return 'heartbeat';
   }
   return 'unknown';
 }
@@ -194,6 +201,32 @@ async function handleCommandAck(message, clientIp) {
   } catch (error) {
     logger.error({ error, message, clientIp }, 'Invalid command acknowledgment');
     throw error;
+  }
+}
+
+/**
+ * Handle heartbeat message from court (workaround for ping/pong compatibility)
+ */
+async function handleHeartbeat(courtId, message, clientIp) {
+  if (!courtId) {
+    logger.warn({ message, clientIp }, 'Received heartbeat from unregistered court');
+    return;
+  }
+
+  try {
+    // Update the heartbeat timestamp in the registry
+    courtRegistry.updateHeartbeat(courtId);
+
+    logger.debug(
+      {
+        courtId,
+        timestamp: message.timestamp,
+        clientIp
+      },
+      'Heartbeat received from court'
+    );
+  } catch (error) {
+    logger.error({ error, message, clientIp }, 'Failed to handle heartbeat');
   }
 }
 

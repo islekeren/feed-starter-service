@@ -187,7 +187,71 @@ EXPOSE 3000
 CMD ["node", "src/app.js"]
 ```
 
-## 🔄 CI/CD Pipeline (Future)
+## �️ Court Client (Python)
+
+The court-side client is located in `local_python/` directory:
+
+### Setup Court Client
+
+```bash
+cd local_python/
+./start_client.sh  # Automated setup and start
+```
+
+### Manual Setup
+
+```bash
+cd local_python/
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+# Edit .env with your configuration
+python3 court_client.py
+```
+
+### Court Client Features
+
+- **WebSocket Connection**: Connects to Feed Starter Service
+- **Video Recording**: Records from RTSP camera streams
+- **Live Streaming**: Streams to YouTube and other platforms
+- **Process Management**: Handles multiple concurrent operations
+- **Auto-Reconnection**: Maintains connection reliability
+- **Structured Logging**: Comprehensive monitoring and debugging
+
+### Configuration
+
+Edit `local_python/.env`:
+
+```bash
+COURT_ID=court-001
+AUTH_TOKEN=dev-token-1
+SERVER_HOST=localhost
+SERVER_PORT=3000
+RTSP_URL=rtsp://user:pass@camera-ip:554/stream
+YOUTUBE_STREAM_KEY=your-stream-key
+RECORDINGS_DIR=recordings
+LOG_LEVEL=INFO
+```
+
+### Supported Commands
+
+- `START_RECORD` - Begin video/audio recording
+- `STOP_RECORD` - Stop all recordings
+- `START_STREAM` - Start live streaming
+- `STOP_STREAM` - Stop live streaming
+
+### System Service (Linux)
+
+```bash
+# Copy service file
+sudo cp local_python/court-client.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable court-client.service
+sudo systemctl start court-client.service
+```
+
+## �🔄 CI/CD Pipeline (Future)
 
 ```yaml
 # .github/workflows/ci.yml

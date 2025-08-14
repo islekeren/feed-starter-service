@@ -1,0 +1,37 @@
+# Court Client Systemd Service
+# Copy this file to /etc/systemd/system/court-client.service
+# Then run:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable court-client.service
+#   sudo systemctl start court-client.service
+
+[Unit]
+Description=Court Client for Feed Starter Service
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/feed-starter-service/local_python
+Environment=PATH=/home/pi/feed-starter-service/local_python/venv/bin
+ExecStart=/home/pi/feed-starter-service/local_python/venv/bin/python /home/pi/feed-starter-service/local_python/court_client.py
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=mixed
+Restart=always
+RestartSec=5
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/pi/feed-starter-service/local_python/recordings
+
+# Resource limits
+LimitNOFILE=1024
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

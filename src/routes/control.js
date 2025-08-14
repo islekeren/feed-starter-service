@@ -7,8 +7,15 @@ const router = express.Router();
 
 // Validation schema for control requests
 const controlRequestSchema = z.object({
-  action: z.enum(['start', 'stop']),
-  userId: z.string().uuid('Invalid userId format'),
+  action: z.enum([
+    'start-record',
+    'stop-record',
+    'start-stream',
+    'stop-stream',
+    'test-stream',
+    'test-record'
+  ]),
+  userId: z.string(),
   source: z.enum(['mobile', 'admin']).optional().default('mobile'),
   meta: z
     .object({
@@ -227,15 +234,35 @@ function mapActionToCommand(action, userId, source, meta) {
   };
 
   switch (action) {
-    case 'start':
+    case 'start-record':
       return {
         ...baseCommand,
         cmd: 'START_RECORD'
       };
-    case 'stop':
+    case 'stop-record':
       return {
         ...baseCommand,
         cmd: 'STOP_RECORD'
+      };
+    case 'start-stream':
+      return {
+        ...baseCommand,
+        cmd: 'START_STREAM'
+      };
+    case 'stop-stream':
+      return {
+        ...baseCommand,
+        cmd: 'STOP_STREAM'
+      };
+    case 'test-record':
+      return {
+        ...baseCommand,
+        cmd: 'TEST_RECORD'
+      };
+    case 'test-stream':
+      return {
+        ...baseCommand,
+        cmd: 'TEST_STREAM'
       };
     default:
       throw new Error(`Unknown action: ${action}`);
