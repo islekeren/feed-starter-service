@@ -2,7 +2,7 @@ import subprocess
 
 # === KULLANICI AYARLARI ===
 # Hikvision RTSP bağlantısı (gerekirse kullanıcı adı ve şifre ile)
-rtsp_url = "rtsp://admin:12345qwe@192.168.1.7:554/Streaming/Channels/101"
+rtsp_url = "rtsp://admin:12345qwe@192.168.88.7:554/Streaming/Channels/101"
 
 # YouTube yayın anahtarınızı buraya yapıştırın
 youtube_stream_key = "0jmk-jsej-cprp-c18s-cb2k"

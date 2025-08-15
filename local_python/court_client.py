@@ -206,6 +206,12 @@ class CourtClient:
             self.logger.info(f"Output file: {output_file}")
             self.logger.info(f"RTSP URL: {self.config['rtsp_url']}")
             
+            # Convert duration from seconds to HH:MM:SS format
+            hours = duration // 3600
+            minutes = (duration % 3600) // 60
+            seconds = duration % 60
+            duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            
             # Build ffmpeg command
             ffmpeg_cmd = [
                 "ffmpeg",
@@ -219,7 +225,7 @@ class CourtClient:
                 "-b:a", "128k",
                 "-ar", "44100",
                 "-ac", "1",
-                "-t", str(duration),
+                "-t", duration_str,
                 "-y",  # Overwrite output file
                 output_file
             ]
@@ -234,36 +240,210 @@ class CourtClient:
                 self.logger.error(f"FFmpeg not available: {e}")
                 return False
             
+            # Test RTSP connection before starting recording
+            self.logger.info("Testing RTSP connection...")
+            test_result = await self._test_rtsp_connection()
+            if not test_result:
+                self.logger.error("RTSP connection test failed, aborting recording")
+                return False
+            
             self.logger.info(f"Starting recording process...")
+            
+            # Add timeout and better error handling for RTSP connection
             process = subprocess.Popen(
                 ffmpeg_cmd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                stderr=subprocess.PIPE,
+                universal_newlines=True,
+                bufsize=1
             )
             
             # Store process for potential stopping
             process_key = f"record_{timestamp}"
             self.current_processes[process_key] = process
             
-            # Check if process started successfully
+            # Give FFmpeg a moment to start and check for immediate errors
+            await asyncio.sleep(2)
+            
+            # Check if process is still running
             if process.poll() is None:
                 self.logger.info(f"Recording started successfully with PID {process.pid}")
                 
-                # Log the first few lines of stderr to see if there are any issues
+                # Start a background task to monitor the process and log errors
+                asyncio.create_task(self._monitor_ffmpeg_process(process, process_key))
                 
                 return True
             else:
-                # Process already terminated
+                # Process already terminated - capture error output
                 stdout, stderr = process.communicate()
                 self.logger.error(f"Recording process failed immediately:")
-                self.logger.error(f"STDOUT: {stdout.decode()}")
-                self.logger.error(f"STDERR: {stderr.decode()}")
+                self.logger.error(f"Return code: {process.returncode}")
+                if stdout:
+                    self.logger.error(f"STDOUT: {stdout}")
+                if stderr:
+                    self.logger.error(f"STDERR: {stderr}")
+                
+                # Clean up
+                if process_key in self.current_processes:
+                    del self.current_processes[process_key]
                 return False
             
         except Exception as e:
             self.logger.error(f"Failed to start recording: {e}")
             import traceback
             self.logger.error(f"Traceback: {traceback.format_exc()}")
+            return False
+    
+    async def _monitor_stream_process(self, process: subprocess.Popen):
+        """Monitor FFmpeg streaming process and log any errors"""
+        try:
+            self.logger.info("Starting stream monitoring...")
+            
+            # Monitor the process in a non-blocking way
+            while process.poll() is None:
+                # Read some stderr to check for errors
+                if process.stderr and process.stderr.readable():
+                    try:
+                        # Use non-blocking read with a small timeout
+                        import select
+                        import sys
+                        
+                        if hasattr(select, 'select'):
+                            ready, _, _ = select.select([process.stderr], [], [], 1)
+                            if ready:
+                                line = process.stderr.readline()
+                                if line:
+                                    line = line.strip()
+                                    # Log important FFmpeg messages
+                                    if any(keyword in line.lower() for keyword in ['error', 'failed', 'invalid', 'timeout']):
+                                        self.logger.error(f"FFmpeg streaming error: {line}")
+                                    elif 'connection refused' in line.lower() or 'rtmp' in line.lower():
+                                        self.logger.warning(f"FFmpeg streaming info: {line}")
+                                    elif 'input/output error' in line.lower():
+                                        self.logger.error(f"FFmpeg streaming I/O error: {line}")
+                                        break
+                                    elif 'frame=' in line.lower() and len(line) > 50:
+                                        # This is FFmpeg progress output, log occasionally
+                                        if 'fps=' in line.lower():
+                                            self.logger.debug(f"Stream progress: {line}")
+                    except Exception as e:
+                        self.logger.debug(f"Error reading FFmpeg stderr: {e}")
+                
+                await asyncio.sleep(2)
+            
+            # Process has ended
+            return_code = process.returncode
+            if return_code != 0:
+                # Get any remaining output
+                try:
+                    stdout, stderr = process.communicate(timeout=5)
+                    if stderr:
+                        self.logger.error(f"FFmpeg streaming process failed with code {return_code}")
+                        self.logger.error(f"Final stderr: {stderr}")
+                    if stdout:
+                        self.logger.info(f"Final stdout: {stdout}")
+                except subprocess.TimeoutExpired:
+                    self.logger.error("FFmpeg streaming process failed and timed out during cleanup")
+            else:
+                self.logger.info("FFmpeg streaming process completed successfully")
+            
+            # Clean up from our tracking
+            if 'live_stream' in self.current_processes:
+                del self.current_processes['live_stream']
+                
+        except Exception as e:
+            self.logger.error(f"Error monitoring FFmpeg streaming process: {e}")
+    
+    async def _monitor_ffmpeg_process(self, process: subprocess.Popen, process_key: str):
+        """Monitor FFmpeg process and log any errors"""
+        try:
+            # Monitor the process in a non-blocking way
+            while process.poll() is None:
+                # Read some stderr to check for errors
+                if process.stderr and process.stderr.readable():
+                    try:
+                        # Use non-blocking read with a small timeout
+                        import select
+                        import sys
+                        
+                        if hasattr(select, 'select'):
+                            ready, _, _ = select.select([process.stderr], [], [], 1)
+                            if ready:
+                                line = process.stderr.readline()
+                                if line:
+                                    line = line.strip()
+                                    # Log important FFmpeg messages
+                                    if any(keyword in line.lower() for keyword in ['error', 'failed', 'invalid', 'timeout']):
+                                        self.logger.error(f"FFmpeg error: {line}")
+                                    elif 'Input/output error' in line:
+                                        self.logger.error(f"FFmpeg I/O error: {line}")
+                                        break
+                    except Exception as e:
+                        self.logger.debug(f"Error reading FFmpeg stderr: {e}")
+                
+                await asyncio.sleep(1)
+            
+            # Process has ended
+            return_code = process.returncode
+            if return_code != 0:
+                # Get any remaining output
+                try:
+                    stdout, stderr = process.communicate(timeout=5)
+                    if stderr:
+                        self.logger.error(f"FFmpeg process {process_key} failed with code {return_code}")
+                        self.logger.error(f"Final stderr: {stderr}")
+                except subprocess.TimeoutExpired:
+                    self.logger.error(f"FFmpeg process {process_key} failed and timed out during cleanup")
+            else:
+                self.logger.info(f"FFmpeg process {process_key} completed successfully")
+            
+            # Clean up from our tracking
+            if process_key in self.current_processes:
+                del self.current_processes[process_key]
+                
+        except Exception as e:
+            self.logger.error(f"Error monitoring FFmpeg process {process_key}: {e}")
+    
+    async def _test_rtsp_connection(self) -> bool:
+        """Test RTSP connection with a quick probe"""
+        try:
+            # Use ffprobe to test connection quickly
+            test_cmd = [
+                "ffprobe",
+                "-rtsp_transport", "tcp",
+                "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=width,height",
+                "-of", "csv=p=0",
+                "-timeout", "10000000",  # 10 second timeout in microseconds
+                self.config['rtsp_url']
+            ]
+            
+            self.logger.debug(f"Testing RTSP with: {' '.join(test_cmd[:-1])} [RTSP_URL]")
+            
+            # Run the test with timeout
+            result = subprocess.run(
+                test_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=15,  # 15 second timeout for the entire operation
+                universal_newlines=True
+            )
+            
+            if result.returncode == 0:
+                self.logger.info("RTSP connection test successful")
+                return True
+            else:
+                self.logger.error(f"RTSP connection test failed with code {result.returncode}")
+                if result.stderr:
+                    self.logger.error(f"RTSP test error: {result.stderr.strip()}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            self.logger.error("RTSP connection test timed out")
+            return False
+        except Exception as e:
+            self.logger.error(f"RTSP connection test failed: {e}")
             return False
     
     async def _handle_stop_record(self, data: Dict) -> bool:
@@ -304,10 +484,15 @@ class CourtClient:
             stream_key = meta.get('stream_key', self.config.get('youtube_stream_key'))
             
             self.logger.info(f"Stream parameters - platform: {platform}")
+            self.logger.info(f"Using stream key: {stream_key[:10]}..." if stream_key else "No stream key")
             
             if not stream_key:
                 self.logger.error("No stream key provided for live streaming")
                 return False
+            
+            # Stop any existing stream first
+            if 'live_stream' in self.current_processes:
+                await self._handle_stop_stream({})
             
             # Generate stream URL based on platform
             if platform == 'youtube':
@@ -317,8 +502,9 @@ class CourtClient:
                 return False
             
             self.logger.info(f"Stream URL: {stream_url[:50]}...")  # Hide full stream key
+            self.logger.info(f"RTSP URL: {self.config['rtsp_url']}")
             
-            # Build ffmpeg command for streaming
+            # Build ffmpeg command for streaming (matching the working hikvision script)
             ffmpeg_cmd = [
                 "ffmpeg",
                 "-rtsp_transport", "tcp",
@@ -346,29 +532,49 @@ class CourtClient:
                 self.logger.error(f"FFmpeg not available: {e}")
                 return False
             
+            # Test RTSP connection before starting stream
+            self.logger.info("Testing RTSP connection...")
+            test_result = await self._test_rtsp_connection()
+            if not test_result:
+                self.logger.error("RTSP connection test failed, aborting stream")
+                return False
+            
             self.logger.info(f"Starting live stream process...")
             process = subprocess.Popen(
                 ffmpeg_cmd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                stderr=subprocess.PIPE,
+                universal_newlines=True,
+                bufsize=1
             )
             
             # Store process for potential stopping
             self.current_processes['live_stream'] = process
             
-            # Check if process started successfully
+            # Give FFmpeg a moment to start and check for immediate errors
+            await asyncio.sleep(3)
+            
+            # Check if process is still running
             if process.poll() is None:
                 self.logger.info(f"Live stream started successfully with PID {process.pid}")
                 
-                # Log the first few lines of stderr to see if there are any issues
+                # Start a background task to monitor the streaming process
+                asyncio.create_task(self._monitor_stream_process(process))
                 
                 return True
             else:
-                # Process already terminated
+                # Process already terminated - capture error output
                 stdout, stderr = process.communicate()
                 self.logger.error(f"Streaming process failed immediately:")
-                self.logger.error(f"STDOUT: {stdout.decode()}")
-                self.logger.error(f"STDERR: {stderr.decode()}")
+                self.logger.error(f"Return code: {process.returncode}")
+                if stdout:
+                    self.logger.error(f"STDOUT: {stdout}")
+                if stderr:
+                    self.logger.error(f"STDERR: {stderr}")
+                
+                # Clean up
+                if 'live_stream' in self.current_processes:
+                    del self.current_processes['live_stream']
                 return False
             
         except Exception as e:
@@ -597,7 +803,7 @@ def load_config():
         'server_host': os.getenv('SERVER_HOST', 'localhost'),
         'server_port': int(os.getenv('SERVER_PORT', '3000')),
         'auth_token': os.getenv('AUTH_TOKEN', 'dev-token-1'),
-        'rtsp_url': os.getenv('RTSP_URL', 'rtsp://admin:12345qwe@192.168.1.7:554/Streaming/Channels/101'),
+        'rtsp_url': os.getenv('RTSP_URL', 'rtsp://admin:12345qwe@192.168.88.7:554/Streaming/Channels/101'),
         'youtube_stream_key': os.getenv('YOUTUBE_STREAM_KEY', ''),
         'recordings_dir': os.getenv('RECORDINGS_DIR', 'recordings'),
         'capabilities': ['live', 'record'],

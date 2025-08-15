@@ -18,7 +18,7 @@ export const config = {
   },
 
   // Control command configuration
-  controlAckTimeout: parseInt(process.env.CONTROL_ACK_TIMEOUT) || 3000,
+  controlAckTimeout: parseInt(process.env.CONTROL_ACK_TIMEOUT) || 20000,
 
   // Logging
   logLevel: process.env.LOG_LEVEL || 'info'
